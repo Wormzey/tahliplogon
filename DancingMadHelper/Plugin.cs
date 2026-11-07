@@ -23,8 +23,10 @@ namespace DancingMadHelper;
 ///
 /// Neo Exdeath gets a hidden status (0x808) just before every Grand Cross cast. Its param says whether
 /// the cast is real or fake. Decoded from a network log (7 pulls, 14 Grand Cross sets):
-///   param 0x462 = REAL  -> Forked Lightning spreads, Compressed Water stacks, Acceleration Bomb = stand still
-///   param 0x461 = FAKE  -> Forked Lightning stacks,  Compressed Water spreads, Acceleration Bomb = move
+///   param 0x462 = REAL  -> Forked Lightning spreads, Compressed Water stacks, Acceleration Bomb = stand still,
+///                          Cursed Shriek = look away
+///   param 0x461 = FAKE  -> Forked Lightning stacks,  Compressed Water spreads, Acceleration Bomb = move,
+///                          Cursed Shriek = look at
 /// The stack/spread half is verified against the actual damage events. The bomb half is inferred from
 /// player movement/ability use around expiry and the 5 failures in the log (see README), so treat it as
 /// likely-but-unconfirmed until you've watched it in game.
@@ -34,7 +36,7 @@ public sealed class Plugin : IDalamudPlugin
     // ---- IDs taken from the log -------------------------------------------------------------
     internal const ushort TerritoryDancingMadUltimate = 0x553;   // ACT zone 553 (hex) = 1363
     internal const uint NeoExdeathNameId = 6055;                 // AddCombatant name ID for "Neo Exdeath"
-    internal const uint StatusNeoFlag = 0x808;                   // hidden status on Neo Exdeath
+    internal const uint StatusNeoFlag = 0x808;                   // hidden status on Neo Exdeath and Chaos
     internal const ushort FlagFake = 0x461;
     internal const ushort FlagReal = 0x462;
     internal const uint ChaosNameId = 7691;
@@ -44,9 +46,12 @@ public sealed class Plugin : IDalamudPlugin
     internal const uint ActionInfernoB = 0xBB20;
     internal const uint ActionTsunamiA = 0xBB1F;
     internal const uint ActionTsunamiB = 0xBB21;
+    internal const uint StatusCursedShriek = 0x15A7;
     internal const uint StatusForkedLightning = 0x15A8;
     internal const uint StatusCompressedWater = 0x15A9;
     internal const uint StatusAccelerationBomb = 0x15AA;
+    internal const uint StatusEntropy = 0x15AB;                  // Inferno's debuff; spawns the Fire twister/donut
+    internal const uint StatusDynamicFluid = 0x15AC;             // Tsunami's debuff; spawns the Water twister/donut
     internal const uint StatusBlizzardCharged = 0x5CC;           // on Kefka from the charged cast until ~0.7s after Mana Release
     internal const uint StatusThunderCharged = 0x5CD;
     internal const uint ActionKefkaSays = 0xC2DC;                // phase start
@@ -83,6 +88,14 @@ public sealed class Plugin : IDalamudPlugin
 
     private readonly WindowSystem windows = new("DancingMadHelper");
     private readonly OverlayWindow overlay;
+    private readonly ConfigWindow configWindow;
+
+    // one pass over the object table per frame
+    private readonly HashSet<uint> casting = new();
+    private bool thunderChargedNow;
+    private bool blizzardChargedNow;
+    private ushort neoFlagNow;
+    private ushort chaosFlagNow;
 
     // status id -> Neo flag that was active when *we* gained that status
     private readonly Dictionary<uint, ushort> flagAtGain = new();
@@ -96,10 +109,12 @@ public sealed class Plugin : IDalamudPlugin
     private int upsurgeCount;
     private volatile bool wipePending;
 
-    // the Inferno/Tsunami cast waiting for its delayed call
+    // the Inferno/Tsunami cast waiting for its delayed call, and what each spell turned out to be
     private bool chaosCasting;
     private string? pendingChaosSpell;
     private long pendingChaosAtMs;
+    private bool? fireTwister;
+    private bool? waterTwister;
 
     // Kefka's charged spells, latched while their charge status is up. null = not read yet.
     private bool? thunderTrue;
@@ -142,8 +157,10 @@ public sealed class Plugin : IDalamudPlugin
         this.commandManager = commandManager;
         this.log = log;
 
-        overlay = new OverlayWindow(() => current);
+        overlay = new OverlayWindow(() => current, config);
+        configWindow = new ConfigWindow(config, () => pluginInterface.SavePluginConfig(config));
         windows.AddWindow(overlay);
+        windows.AddWindow(configWindow);
 
         // Everything else still works without the hook; Mana Release just reads the released casts instead.
         try
@@ -159,28 +176,34 @@ public sealed class Plugin : IDalamudPlugin
 
         pluginInterface.UiBuilder.Draw += windows.Draw;
         pluginInterface.UiBuilder.OpenMainUi += TogglePreview;
-        pluginInterface.UiBuilder.OpenConfigUi += TogglePreview;
+        pluginInterface.UiBuilder.OpenConfigUi += ToggleConfig;
         onDutyWiped = _ => wipePending = true;
         dutyState.DutyWiped += onDutyWiped;
         framework.Update += OnUpdate;
         commandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
             HelpMessage = "Show or hide the Dancing Mad helper window so you can position it. "
+                + "\"/dmuhelper config\" opens the settings. "
                 + "\"/dmuhelper chat\" switches the Fire/Water calls between party chat and your own chat (/e).",
         });
     }
 
     private void OnCommand(string command, string args)
     {
-        if (!args.Trim().Equals("chat", StringComparison.OrdinalIgnoreCase))
+        switch (args.Trim().ToLowerInvariant())
         {
-            TogglePreview();
-            return;
+            case "config":
+                ToggleConfig();
+                return;
+            case "chat":
+                config.SendChaosCalls = !config.SendChaosCalls;
+                pluginInterface.SavePluginConfig(config);
+                chatGui.Print($"Dancing Mad Helper: Fire/Water calls now go to {(config.SendChaosCalls ? "party chat (/p)" : "your own chat only (/e)")}.");
+                return;
+            default:
+                TogglePreview();
+                return;
         }
-
-        config.SendChaosCalls = !config.SendChaosCalls;
-        pluginInterface.SavePluginConfig(config);
-        chatGui.Print($"Dancing Mad Helper: Fire/Water calls now go to {(config.SendChaosCalls ? "party chat (/p)" : "your own chat only (/e)")}.");
     }
 
     private void TogglePreview()
@@ -188,6 +211,8 @@ public sealed class Plugin : IDalamudPlugin
         overlay.Preview = !overlay.Preview;
         overlay.IsOpen = overlay.Preview || phaseActive;
     }
+
+    private void ToggleConfig() => configWindow.IsOpen = !configWindow.IsOpen;
 
     private void OnUpdate(IFramework _)
     {
@@ -205,6 +230,7 @@ public sealed class Plugin : IDalamudPlugin
             return;
         }
 
+        ScanNpcs();
         UpdatePhase();
         if (!phaseActive)
         {
@@ -214,7 +240,7 @@ public sealed class Plugin : IDalamudPlugin
 
         UpdateChaosCall();
 
-        var neoFlag = ReadBossFlag(NeoExdeathNameId, FlagFake, FlagReal);
+        var neoFlag = neoFlagNow;
         if (neoFlag != lastLoggedFlag)
         {
             if (neoFlag != 0)
@@ -223,39 +249,51 @@ public sealed class Plugin : IDalamudPlugin
         }
 
         var present = new HashSet<uint>();
-        var callouts = new List<Callout>(3);
+        var callouts = new List<Callout>(8);
 
         foreach (var status in me.StatusList)
         {
             var id = status.StatusId;
-            if (id != StatusForkedLightning && id != StatusCompressedWater && id != StatusAccelerationBomb)
+            var neoDebuff = id is StatusCursedShriek or StatusForkedLightning or StatusCompressedWater or StatusAccelerationBomb;
+            if (!neoDebuff && id is not (StatusEntropy or StatusDynamicFluid))
                 continue;
 
-            present.Add(id);
+            if (neoDebuff)
+            {
+                present.Add(id);
 
-            // Latch the flag at the moment we gain the debuff. If we gained it a frame before the flag
-            // was readable, fill it in while the flag is still around (it lasts ~1.4s after the debuffs land).
-            // Past that window any flag belongs to a later cast, so leave it as "?" rather than guess.
-            var now = Environment.TickCount64;
-            if (!previous.Contains(id))
-            {
-                flagAtGain[id] = neoFlag;
-                gainedAtMs[id] = now;
-                log.Information("Gained status 0x{Id:X} with Neo flag 0x{Flag:X}", id, neoFlag);
-            }
-            else if (flagAtGain.TryGetValue(id, out var stored) && stored == 0 && neoFlag != 0
-                     && now - gainedAtMs[id] <= LateFlagWindowMs)
-            {
-                flagAtGain[id] = neoFlag;
-                log.Information("Late flag 0x{Flag:X} for status 0x{Id:X}", neoFlag, id);
+                // Latch the flag at the moment we gain the debuff. If we gained it a frame before the flag
+                // was readable, fill it in while the flag is still around (it lasts ~1.4s after the debuffs land).
+                // Past that window any flag belongs to a later cast, so leave it as "?" rather than guess.
+                var now = Environment.TickCount64;
+                if (!previous.Contains(id))
+                {
+                    flagAtGain[id] = neoFlag;
+                    gainedAtMs[id] = now;
+                    log.Information("Gained status 0x{Id:X} with Neo flag 0x{Flag:X}", id, neoFlag);
+                }
+                else if (flagAtGain.TryGetValue(id, out var stored) && stored == 0 && neoFlag != 0
+                         && now - gainedAtMs[id] <= LateFlagWindowMs)
+                {
+                    flagAtGain[id] = neoFlag;
+                    log.Information("Late flag 0x{Flag:X} for status 0x{Id:X}", neoFlag, id);
+                }
             }
 
             // the status can outlive its timer briefly while the server resolves it
-            if (status.RemainingTime <= 0)
+            if (status.RemainingTime <= 0 || !config.Shows(id))
                 continue;
 
-            var flag = flagAtGain.TryGetValue(id, out var f) ? f : (ushort)0;
-            callouts.Add(Resolve(id, flag, status.RemainingTime));
+            if (neoDebuff)
+            {
+                var flag = flagAtGain.TryGetValue(id, out var f) ? f : (ushort)0;
+                callouts.Add(Resolve(id, flag, status.RemainingTime));
+            }
+            else
+            {
+                var isFire = id == StatusEntropy;
+                callouts.Add(TwisterOrDonut(isFire ? "Fire" : "Water", isFire ? fireTwister : waterTwister, status.RemainingTime));
+            }
         }
 
         // forget statuses that expired
@@ -281,6 +319,51 @@ public sealed class Plugin : IDalamudPlugin
         overlay.IsOpen = true;
     }
 
+    /// <summary>
+    /// Reads everything the plugin needs from NPCs in one pass. Some objects are only half set up for a frame
+    /// (Dalamud's IsCasting throws on them), so any one object failing is skipped rather than breaking the frame.
+    /// </summary>
+    private void ScanNpcs()
+    {
+        casting.Clear();
+        thunderChargedNow = false;
+        blizzardChargedNow = false;
+        neoFlagNow = 0;
+        chaosFlagNow = 0;
+
+        foreach (var obj in objectTable)
+        {
+            if (obj is not IBattleNpc npc)
+                continue;
+
+            try
+            {
+                var nameId = npc.NameId;
+                foreach (var st in npc.StatusList)
+                {
+                    switch (st.StatusId)
+                    {
+                        case StatusThunderCharged: thunderChargedNow = true; break;
+                        case StatusBlizzardCharged: blizzardChargedNow = true; break;
+                        case StatusNeoFlag when nameId == NeoExdeathNameId && st.Param is FlagReal or FlagFake:
+                            neoFlagNow = st.Param;
+                            break;
+                        case StatusNeoFlag when nameId == ChaosNameId && st.Param is ChaosFlagReal or ChaosFlagFake:
+                            chaosFlagNow = st.Param;
+                            break;
+                    }
+                }
+
+                if (npc.IsCasting)
+                    casting.Add(npc.CastActionId);
+            }
+            catch (NullReferenceException)
+            {
+                // object torn down or not ready this frame
+            }
+        }
+    }
+
     private void UpdatePhase()
     {
         if (wipePending)
@@ -292,19 +375,9 @@ public sealed class Plugin : IDalamudPlugin
             return;
         }
 
-        bool kefkaSays = false, upsurge = false;
-        foreach (var obj in objectTable)
-        {
-            if (obj is not IBattleNpc { IsCasting: true } npc)
-                continue;
-
-            if (npc.CastActionId == ActionKefkaSays) kefkaSays = true;
-            else if (npc.CastActionId == ActionUltimaUpsurge) upsurge = true;
-        }
-
         if (!phaseActive)
         {
-            if (kefkaSays)
+            if (casting.Contains(ActionKefkaSays))
             {
                 phaseActive = true;
                 log.Information("Kefka Says; phase started");
@@ -313,6 +386,7 @@ public sealed class Plugin : IDalamudPlugin
             return;
         }
 
+        var upsurge = casting.Contains(ActionUltimaUpsurge);
         if (upsurge && !upsurgeCasting && ++upsurgeCount >= 2)
         {
             log.Information("Second Ultima Upsurge; phase over");
@@ -322,27 +396,6 @@ public sealed class Plugin : IDalamudPlugin
         upsurgeCasting = upsurge;
     }
 
-    /// <summary>Returns the fake or real param if that boss currently carries the hidden flag, else 0.</summary>
-    private ushort ReadBossFlag(uint nameId, ushort fake, ushort real)
-    {
-        foreach (var obj in objectTable)
-        {
-            if (obj is not IBattleNpc npc || npc.NameId != nameId)
-                continue;
-
-            foreach (var st in npc.StatusList)
-            {
-                if (st.StatusId != StatusNeoFlag)
-                    continue;
-                var param = st.Param;
-                if (param == real || param == fake)
-                    return param;
-            }
-        }
-
-        return 0;
-    }
-
     /// <summary>
     /// Chaos gets the same hidden status before Inferno and Tsunami, with 0x460 = true and 0x45F = fake.
     /// True Inferno and fake Tsunami spawn a twister; fake Inferno and true Tsunami spawn a donut.
@@ -350,14 +403,8 @@ public sealed class Plugin : IDalamudPlugin
     private void UpdateChaosCall()
     {
         string? spell = null;
-        foreach (var obj in objectTable)
-        {
-            if (obj is not IBattleNpc { IsCasting: true } npc)
-                continue;
-
-            if (npc.CastActionId is ActionInfernoA or ActionInfernoB) spell = "Fire";
-            else if (npc.CastActionId is ActionTsunamiA or ActionTsunamiB) spell = "Water";
-        }
+        if (casting.Contains(ActionInfernoA) || casting.Contains(ActionInfernoB)) spell = "Fire";
+        else if (casting.Contains(ActionTsunamiA) || casting.Contains(ActionTsunamiB)) spell = "Water";
 
         var now = Environment.TickCount64;
         if (spell is not null && !chaosCasting)
@@ -371,29 +418,32 @@ public sealed class Plugin : IDalamudPlugin
         if (pendingChaosSpell is null || now < pendingChaosAtMs)
             return;
 
-        var flag = ReadBossFlag(ChaosNameId, ChaosFlagFake, ChaosFlagReal);
-        var call = ChaosCall(pendingChaosSpell, flag);
+        var flag = chaosFlagNow;
+        var twister = IsTwister(pendingChaosSpell, flag);
+        var called = pendingChaosSpell;
         pendingChaosSpell = null;
 
-        if (call is null)
+        if (twister is null)
         {
             log.Warning("Chaos flag not readable; no call made");
             return;
         }
 
+        if (called == "Fire") fireTwister = twister;
+        else waterTwister = twister;
+
         // /e only echoes to our own chat, so the call can be checked live before going to the party
-        var line = $"{(config.SendChaosCalls ? "/p" : "/e")} {call}";
+        var line = $"{(config.SendChaosCalls ? "/p" : "/e")} {called} is {(twister.Value ? "TWISTER (dodge)" : "DONUT (stay)")}";
         log.Information("Chaos flag 0x{Flag:X}: {Line}", flag, line);
         SendChat(line);
     }
 
-    private static string? ChaosCall(string spell, ushort flag)
+    private static bool? IsTwister(string spell, ushort flag)
     {
         if (flag != ChaosFlagReal && flag != ChaosFlagFake)
             return null; // never saw the flag; don't guess
 
-        var isTwister = (flag == ChaosFlagReal) == (spell == "Fire");
-        return $"{spell} is {(isTwister ? "TWISTER (dodge)" : "DONUT (stay)")}";
+        return (flag == ChaosFlagReal) == (spell == "Fire");
     }
 
     private static unsafe void SendChat(string text)
@@ -410,32 +460,12 @@ public sealed class Plugin : IDalamudPlugin
     /// </summary>
     private void UpdateManaRelease(List<Callout> callouts)
     {
-        bool thunderCharged = false, blizzardCharged = false, releasing = false;
-        bool? thunderCast = null, blizzardCast = null;
-
-        foreach (var obj in objectTable)
-        {
-            if (obj is not IBattleNpc npc)
-                continue;
-
-            foreach (var st in npc.StatusList)
-            {
-                if (st.StatusId == StatusThunderCharged) thunderCharged = true;
-                else if (st.StatusId == StatusBlizzardCharged) blizzardCharged = true;
-            }
-
-            if (!npc.IsCasting)
-                continue;
-
-            switch (npc.CastActionId)
-            {
-                case ActionManaRelease: releasing = true; break;
-                case ActionThunderTrue: thunderCast = true; break;
-                case ActionThunderFalseA or ActionThunderFalseB: thunderCast = false; break;
-                case ActionBlizzardTrue: blizzardCast = true; break;
-                case ActionBlizzardFalseA or ActionBlizzardFalseB: blizzardCast = false; break;
-            }
-        }
+        bool thunderCharged = thunderChargedNow, blizzardCharged = blizzardChargedNow;
+        var releasing = casting.Contains(ActionManaRelease);
+        bool? thunderCast = casting.Contains(ActionThunderTrue) ? true
+            : casting.Contains(ActionThunderFalseA) || casting.Contains(ActionThunderFalseB) ? false : null;
+        bool? blizzardCast = casting.Contains(ActionBlizzardTrue) ? true
+            : casting.Contains(ActionBlizzardFalseA) || casting.Contains(ActionBlizzardFalseB) ? false : null;
 
         // The charged spells' own markers arrive before they latch, so anything after both are in is Mana Release's.
         while (markers.TryDequeue(out var marker))
@@ -494,6 +524,9 @@ public sealed class Plugin : IDalamudPlugin
             ResetMana();
             return;
         }
+
+        if (!config.ShowManaRelease)
+            return;
 
         var thunderNow = thunderFinal ?? Released(thunderTrue, thunderInverted);
         var blizzardNow = blizzardFinal ?? Released(blizzardTrue, blizzardInverted);
@@ -583,6 +616,7 @@ public sealed class Plugin : IDalamudPlugin
             StatusCompressedWater => "Water",
             StatusForkedLightning => "Lightning",
             StatusAccelerationBomb => "Bomb",
+            StatusCursedShriek => "Shriek",
             _ => "?",
         };
 
@@ -595,11 +629,19 @@ public sealed class Plugin : IDalamudPlugin
             StatusCompressedWater => real ? ("STACK", Blue) : ("SPREAD", Red),
             StatusForkedLightning => real ? ("SPREAD", Red) : ("STACK", Blue),
             StatusAccelerationBomb => real ? ("STAND STILL", Yellow) : ("MOVE", Green),
+            StatusCursedShriek => real ? ("LOOK AWAY", Red) : ("LOOK AT", Green),
             _ => ("?", Grey),
         };
 
         return new Callout(name, label, color, remaining);
     }
+
+    private static Callout TwisterOrDonut(string name, bool? twister, float remaining) => twister switch
+    {
+        true => new Callout(name, "TWISTER (dodge)", Red, remaining),
+        false => new Callout(name, "DONUT (stay)", Green, remaining),
+        null => new Callout(name, "?", Grey, remaining),
+    };
 
     private void Reset()
     {
@@ -614,6 +656,8 @@ public sealed class Plugin : IDalamudPlugin
         wipePending = false;
         chaosCasting = false;
         pendingChaosSpell = null;
+        fireTwister = null;
+        waterTwister = null;
         current = Array.Empty<Callout>();
         overlay.IsOpen = overlay.Preview;
     }
@@ -624,7 +668,7 @@ public sealed class Plugin : IDalamudPlugin
         actorControlHook?.Dispose();
         framework.Update -= OnUpdate;
         dutyState.DutyWiped -= onDutyWiped;
-        pluginInterface.UiBuilder.OpenConfigUi -= TogglePreview;
+        pluginInterface.UiBuilder.OpenConfigUi -= ToggleConfig;
         pluginInterface.UiBuilder.OpenMainUi -= TogglePreview;
         pluginInterface.UiBuilder.Draw -= windows.Draw;
         windows.RemoveAllWindows();
@@ -637,6 +681,26 @@ public sealed class Configuration : IPluginConfiguration
     public int Version { get; set; } = 0;
 
     public bool SendChaosCalls { get; set; }
+
+    public bool ShowStackSpread { get; set; } = true;
+    public bool ShowBomb { get; set; } = true;
+    public bool ShowShriek { get; set; } = true;
+    public bool ShowTwisterDonut { get; set; } = true;
+    public bool ShowManaRelease { get; set; } = true;
+
+    public float FontScale { get; set; } = 2.0f;
+    public bool AutoSize { get; set; } = true;
+    public float Width { get; set; } = 420f;
+    public float Height { get; set; } = 220f;
+
+    internal bool Shows(uint status) => status switch
+    {
+        Plugin.StatusForkedLightning or Plugin.StatusCompressedWater => ShowStackSpread,
+        Plugin.StatusAccelerationBomb => ShowBomb,
+        Plugin.StatusCursedShriek => ShowShriek,
+        Plugin.StatusEntropy or Plugin.StatusDynamicFluid => ShowTwisterDonut,
+        _ => true,
+    };
 }
 
 internal readonly record struct Callout(string Debuff, string Label, Vector4 Color, float Remaining);
@@ -644,15 +708,16 @@ internal readonly record struct Callout(string Debuff, string Label, Vector4 Col
 internal sealed class OverlayWindow : Window
 {
     private readonly Func<Callout[]> source;
+    private readonly Configuration config;
 
     public bool Preview;
 
-    public OverlayWindow(Func<Callout[]> source)
+    public OverlayWindow(Func<Callout[]> source, Configuration config)
         : base("Dancing Mad helper##overlay",
-               ImGuiWindowFlags.NoScrollbar |
-               ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoFocusOnAppearing | ImGuiWindowFlags.NoNav)
+               ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoFocusOnAppearing | ImGuiWindowFlags.NoNav)
     {
         this.source = source;
+        this.config = config;
         ShowCloseButton = false;     // visibility is driven by the fight state; collapse it with the title bar
         RespectCloseHotkey = false;
         BgAlpha = 0.7f; // keeps the colored text readable over bright floors
@@ -660,11 +725,26 @@ internal sealed class OverlayWindow : Window
         PositionCondition = ImGuiCond.FirstUseEver;
     }
 
+    public override void PreDraw()
+    {
+        if (config.AutoSize)
+        {
+            Flags |= ImGuiWindowFlags.AlwaysAutoResize;
+            Size = null;
+        }
+        else
+        {
+            Flags &= ~ImGuiWindowFlags.AlwaysAutoResize;
+            Size = new Vector2(config.Width, config.Height);
+            SizeCondition = ImGuiCond.Always;
+        }
+    }
+
     public override void Draw()
     {
         var items = source();
 
-        ImGui.SetWindowFontScale(2.0f);
+        ImGui.SetWindowFontScale(config.FontScale);
         if (items.Length == 0)
             ImGui.TextUnformatted("Waiting for callouts");
 
@@ -676,5 +756,73 @@ internal sealed class OverlayWindow : Window
         }
 
         ImGui.SetWindowFontScale(1.0f);
+    }
+}
+
+internal sealed class ConfigWindow : Window
+{
+    private readonly Configuration config;
+    private readonly Action save;
+
+    public ConfigWindow(Configuration config, Action save)
+        : base("Dancing Mad helper settings##config", ImGuiWindowFlags.AlwaysAutoResize)
+    {
+        this.config = config;
+        this.save = save;
+    }
+
+    public override void Draw()
+    {
+        var changed = false;
+
+        ImGui.TextUnformatted("Callouts");
+        changed |= Toggle("Lightning / Water stack or spread", config.ShowStackSpread, v => config.ShowStackSpread = v);
+        changed |= Toggle("Acceleration Bomb (inferred, unconfirmed)", config.ShowBomb, v => config.ShowBomb = v);
+        changed |= Toggle("Cursed Shriek look at / look away", config.ShowShriek, v => config.ShowShriek = v);
+        changed |= Toggle("Fire / Water twister or donut", config.ShowTwisterDonut, v => config.ShowTwisterDonut = v);
+        changed |= Toggle("Thunder / Blizzard and Mana Release", config.ShowManaRelease, v => config.ShowManaRelease = v);
+
+        ImGui.Separator();
+        ImGui.TextUnformatted("Window");
+        var font = config.FontScale;
+        if (ImGui.SliderFloat("Font size", ref font, 0.5f, 4.0f, "%.1fx"))
+        {
+            config.FontScale = font;
+            changed = true;
+        }
+
+        changed |= Toggle("Fit window to text", config.AutoSize, v => config.AutoSize = v);
+        if (!config.AutoSize)
+        {
+            var width = config.Width;
+            if (ImGui.SliderFloat("Width", ref width, 100f, 1500f, "%.0f"))
+            {
+                config.Width = width;
+                changed = true;
+            }
+
+            var height = config.Height;
+            if (ImGui.SliderFloat("Height", ref height, 50f, 1000f, "%.0f"))
+            {
+                config.Height = height;
+                changed = true;
+            }
+        }
+
+        ImGui.Separator();
+        changed |= Toggle("Send Fire / Water calls to party chat (off: only you see them, via /e)",
+                          config.SendChaosCalls, v => config.SendChaosCalls = v);
+
+        if (changed)
+            save();
+    }
+
+    private static bool Toggle(string label, bool value, Action<bool> set)
+    {
+        if (!ImGui.Checkbox(label, ref value))
+            return false;
+
+        set(value);
+        return true;
     }
 }

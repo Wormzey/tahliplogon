@@ -18,7 +18,7 @@ Dalamud plugins for FFXIV.
 | Plugin | What it does | Command |
 |--------|--------------|---------|
 | [[TPlog] Stray Apocalypse Paths](StrayApocalypse) | Dancing Mad (Ultimate): draws the full path of each Stray Apocalypse line of explosions as soon as it starts casting, with countdowns. Includes a practice mode (`/stray test`). | `/stray` |
-| [[TPlog] Dancing Mad Helper](DancingMadHelper) | Dancing Mad (Ultimate) phase 4: real/fake callouts for Grand Cross debuffs, Mana Release and Chaos's Fire/Water. | `/dmuhelper` |
+| [[TPlog] Dancing Mad Helper](DancingMadHelper) | Dancing Mad (Ultimate) phase 4: real/fake callouts for Grand Cross debuffs, Cursed Shriek, Mana Release and Chaos's Fire/Water, with a settings window. | `/dmuhelper` |
 | [[TPlog] Max Melee Ring](MaxMeleeRing) | Draws each enemy's maximum melee range on the ground. | `/maxmelee` |
 | [[TPlog] Materia Sweep](MateriaSweep) | Extracts materia from fully spiritbonded gear (and optionally retrieves melds) across your inventory and armoury chest. | `/materiasweep` |
 
