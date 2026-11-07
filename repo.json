@@ -20,7 +20,7 @@
     "DownloadLinkInstall": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/DancingMadHelper/latest.zip",
     "DownloadLinkUpdate": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/DancingMadHelper/latest.zip",
     "DownloadLinkTesting": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/DancingMadHelper/latest.zip",
-    "LastUpdate": 1794090562
+    "LastUpdate": 1794090878
   },
   {
     "Author": "Wormzey",
@@ -43,7 +43,7 @@
     "DownloadLinkInstall": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/MateriaSweep/latest.zip",
     "DownloadLinkUpdate": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/MateriaSweep/latest.zip",
     "DownloadLinkTesting": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/MateriaSweep/latest.zip",
-    "LastUpdate": 1794090562
+    "LastUpdate": 1794090878
   },
   {
     "Author": "Wormzey",
@@ -66,13 +66,13 @@
     "DownloadLinkInstall": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/MaxMeleeRing/latest.zip",
     "DownloadLinkUpdate": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/MaxMeleeRing/latest.zip",
     "DownloadLinkTesting": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/MaxMeleeRing/latest.zip",
-    "LastUpdate": 1794090562
+    "LastUpdate": 1794090878
   },
   {
     "Author": "Wormzey",
     "Name": "[TPlog] Stray Apocalypse Paths",
     "InternalName": "StrayApocalypse",
-    "AssemblyVersion": "0.0.0.3",
+    "AssemblyVersion": "0.0.0.4",
     "Punchline": "Draws the whole path of Kefka's Stray Apocalypse explosions as soon as each line starts casting.",
     "Description": "In Dancing Mad (Ultimate), each Stray Apocalypse starter fires six more explosions in a straight diagonal line, one every half second. The game only marks the starter. This plugin draws all six follow-up circles on the ground the moment the starter begins casting, and removes each one once it has gone off.",
     "ApplicableVersion": "any",
@@ -90,6 +90,6 @@
     "DownloadLinkInstall": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/StrayApocalypse/latest.zip",
     "DownloadLinkUpdate": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/StrayApocalypse/latest.zip",
     "DownloadLinkTesting": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/StrayApocalypse/latest.zip",
-    "LastUpdate": 1794090562
+    "LastUpdate": 1794090878
   }
 ]

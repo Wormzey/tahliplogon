@@ -45,6 +45,13 @@ public sealed class Plugin : IDalamudPlugin
     // Practice only. In the logs no player stood more than 19.1 y from the centre (100, 100) during the mechanic,
     // so the arena is a 20 y radius circle. Starters cast from 25-30 y out and go off ~4.0 s after starting.
     private const float ArenaRadius = 20f;
+    private static readonly Vector2 ArenaCentre = new(100f, 100f); // world X/Z of the real arena's centre
+    private const float SafeMargin = 1f;        // extra clearance beyond the explosion radius, for your hitbox
+    private const float SafeEdgeMargin = 1f;    // keep the spot off the arena edge
+    private const float SafeGridStep = 1f;
+    private const float SafeSpotRadius = 1.5f;
+    private const float SafeHoldSeconds = 2f;   // when nowhere is clear, stay until the next hit is this close
+    private const float SafeRunSpeed = 5f;      // y/s; a little under base run speed (~6 y/s), for reaction time
     private const int ArenaSegments = 128;
     private const float StarterDelay = 3.98f;
     private static readonly Vector4 ArenaColor = new(1f, 1f, 1f, 0.6f);
@@ -78,6 +85,8 @@ public sealed class Plugin : IDalamudPlugin
     // Written on the framework thread, read on the draw thread.
     private volatile Lane[] lanes = Array.Empty<Lane>();
     private volatile Vector3[] arena = []; // practice arena centre, when practising
+    private volatile Vector3[] safe = [];  // the green safest spot, when there is one
+    private Vector2? safeSpot;             // framework thread only
 
     public Plugin(
         IDalamudPluginInterface pluginInterface,
@@ -139,8 +148,116 @@ public sealed class Plugin : IDalamudPlugin
         if (preview)
             AddPreview(now, found);
 
-        lanes = found.ToArray();
+        var current = found.ToArray();
+        lanes = current;
         arena = preview && objectTable.LocalPlayer is not null ? [previewAnchor] : [];
+        UpdateSafeSpot(now, current);
+    }
+
+    /// <summary>
+    /// Picks the spot closest to the arena centre that no announced, not-yet-exploded circle covers (plus a margin
+    /// for your hitbox). It stays put while it remains clear, and only moves when a newly announced line would hit
+    /// it. If nowhere is clear, it picks the spot whose next hit is furthest away. Only starters that have begun
+    /// casting are known, so this is "safest given what's announced so far", not a full solution.
+    /// </summary>
+    private void UpdateSafeSpot(double now, Lane[] current)
+    {
+        var pending = new List<(Vector2 Pos, float In)>();
+        if (config.ShowSafeSpot)
+        {
+            foreach (var lane in current)
+            {
+                var elapsed = (float)(now - lane.CastStart);
+                for (var k = lane.DrawStarter ? 0 : 1; k <= Steps; k++)
+                {
+                    var fire = k == 0 ? StarterDelay : StepTime(k);
+                    if (elapsed > fire + ExplodedGrace)
+                        continue;
+
+                    var p = lane.Origin + lane.Step * k;
+                    pending.Add((new Vector2(p.X, p.Z), fire - elapsed));
+                }
+            }
+        }
+
+        if (pending.Count == 0)
+        {
+            safeSpot = null;
+            safe = [];
+            return;
+        }
+
+        var y = current[0].Origin.Y;
+        var centre = preview ? new Vector2(previewAnchor.X, previewAnchor.Z) : ArenaCentre;
+        var reach = config.Radius + SafeMargin;
+
+        float TimeToHit(Vector2 q)
+        {
+            var soonest = float.PositiveInfinity;
+            foreach (var (pos, inSeconds) in pending)
+            {
+                if (inSeconds < soonest && Vector2.Distance(q, pos) <= reach)
+                    soonest = inSeconds;
+            }
+
+            return soonest;
+        }
+
+        // Keep the current spot while it's clear and still in this arena (practice re-anchors every loop).
+        var keptTime = float.NegativeInfinity;
+        if (safeSpot is { } kept && Vector2.Distance(kept, centre) <= ArenaRadius)
+        {
+            keptTime = TimeToHit(kept);
+            if (float.IsPositiveInfinity(keptTime))
+            {
+                safe = [new Vector3(kept.X, y, kept.Y)];
+                return;
+            }
+        }
+
+        // When moving off a spot that's about to be hit, prefer spots you can run to before that hit.
+        var from = safeSpot;
+        var runBudget = from is not null && keptTime > 0 ? SafeRunSpeed * keptTime : float.PositiveInfinity;
+
+        Vector2? best = null;
+        var bestReachable = false;
+        var bestTime = float.NegativeInfinity;
+        var bestDistance = float.PositiveInfinity;
+        var limit = ArenaRadius - SafeEdgeMargin;
+        for (var dx = -limit; dx <= limit; dx += SafeGridStep)
+        {
+            for (var dz = -limit; dz <= limit; dz += SafeGridStep)
+            {
+                var offset = new Vector2(dx, dz);
+                var distance = offset.Length();
+                if (distance > limit)
+                    continue;
+
+                var candidate = centre + offset;
+                var reachable = from is not { } f || Vector2.Distance(candidate, f) <= runBudget;
+                if (!reachable && bestReachable)
+                    continue;
+
+                var time = TimeToHit(candidate);
+                var later = float.IsPositiveInfinity(time) ? !float.IsPositiveInfinity(bestTime) : time > bestTime + 0.05f;
+                var tie = float.IsPositiveInfinity(time) ? float.IsPositiveInfinity(bestTime) : MathF.Abs(time - bestTime) <= 0.05f;
+                if ((reachable && !bestReachable) || later || (tie && distance < bestDistance))
+                {
+                    best = candidate;
+                    bestReachable = reachable;
+                    bestTime = time;
+                    bestDistance = distance;
+                }
+            }
+        }
+
+        // When nowhere is clear, hold position until the current spot's next hit is close, rather than chasing
+        // whichever spot is a fraction of a second better each frame.
+        if (safeSpot is { } held && !float.IsPositiveInfinity(bestTime) && keptTime >= SafeHoldSeconds)
+            best = held;
+
+        safeSpot = best;
+        safe = best is { } b ? [new Vector3(b.X, y, b.Y)] : [];
     }
 
     private void ScanCasts(double now, List<Lane> found)
@@ -342,6 +459,14 @@ public sealed class Plugin : IDalamudPlugin
                 }
             }
         }
+
+        // drawn last so it sits on top of the explosion circles
+        var safeColor = config.SafeColor;
+        foreach (var spot in safe)
+        {
+            DrawCircle(drawList, spot, SafeSpotRadius, ImGui.ColorConvertFloat4ToU32(safeColor),
+                       ImGui.ColorConvertFloat4ToU32(safeColor with { W = safeColor.W * 0.4f }));
+        }
     }
 
     private void DrawCircle(ImDrawListPtr drawList, Vector3 center, float radius, uint outline, uint fill,
@@ -421,6 +546,8 @@ public sealed class Configuration : IPluginConfiguration
     public bool Fill { get; set; } = true;
     public float FillOpacity { get; set; } = 0.2f;
     public bool ShowCountdown { get; set; } = true;
+    public bool ShowSafeSpot { get; set; } = true;
+    public Vector4 SafeColor { get; set; } = new(0.2f, 1f, 0.35f, 1f);
     public Vector4 Color { get; set; } = new(1f, 0.55f, 0.1f, 0.9f);
     public Vector4 SecondColor { get; set; } = new(0.2f, 0.65f, 1f, 0.9f);
     public float SecondFillOpacity { get; set; } = 0.2f;
@@ -487,6 +614,21 @@ internal sealed class ConfigWindow : Window
         if (ImGui.Checkbox("Fill circles", ref fill))
         {
             config.Fill = fill;
+            changed = true;
+        }
+
+        var safeSpot = config.ShowSafeSpot;
+        if (ImGui.Checkbox("Show safest spot (green)", ref safeSpot))
+        {
+            config.ShowSafeSpot = safeSpot;
+            changed = true;
+        }
+
+        ImGui.SameLine();
+        var safeColor = config.SafeColor;
+        if (ImGui.ColorEdit4("##safecolour", ref safeColor, ImGuiColorEditFlags.NoInputs))
+        {
+            config.SafeColor = safeColor;
             changed = true;
         }
 

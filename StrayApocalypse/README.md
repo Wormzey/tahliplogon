@@ -5,6 +5,11 @@ six follow-up explosions on the ground, with a countdown on each. Sets alternate
 the next circle to go off in each line gets a red outline, and each circle disappears once it has exploded.
 
 * `/stray` opens settings (radius, colours, fill, countdown, duty-only toggle).
+* A green circle marks the safest spot given the lines announced so far: the point closest to the arena centre
+  that no pending circle covers (with 1 y to spare). It stays put while it's clear, and when a new line would hit
+  it, it moves to a spot you can reach at 5 y/s before that hit. Simulated over all 36 set orders, the green spot
+  was never hit (at 6 y and 7 y radius), with about 4-5 moves per Stray Apocalypse. No spot is safe for the whole
+  mechanic, so you do have to move. Toggle and colour in `/stray`.
 * `/stray test` loops the whole mechanic for practice: six sets 2.5 s apart, alternating NW and NE, each of the
   three NW and three NE starting pairs once in a random order (as in every logged pull). You stand where the arena
   centre would be, and the layout is re-anchored on you every 23 s. A white ring shows the 20 y arena edge (no
