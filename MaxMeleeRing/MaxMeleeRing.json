@@ -1,7 +1,7 @@
 {
   "Author": "Wormzey",
   "RepoUrl": "https://github.com/Wormzey/tahliplogon",
-  "Name": "Max Melee Ring",
+  "Name": "[TPlog] Max Melee Ring",
   "InternalName": "MaxMeleeRing",
   "Punchline": "Draws each enemy's maximum melee range on the ground.",
   "Description": "Draws a red ring around enemies at the furthest distance your melee actions can reach, so you can hold max melee while dodging. Keep your character's centre inside the ring.",

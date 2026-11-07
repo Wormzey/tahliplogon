@@ -11,16 +11,16 @@ Dalamud plugins for FFXIV.
    https://raw.githubusercontent.com/Wormzey/tahliplogon/master/repo.json
    ```
 
-3. Open `/xlplugins` and search for the plugin you want.
+3. Open `/xlplugins` and search for **[TPlog]** to see them all.
 
 ## Plugins
 
 | Plugin | What it does | Command |
 |--------|--------------|---------|
-| [Stray Apocalypse Paths](StrayApocalypse) | Dancing Mad (Ultimate): draws the full path of each Stray Apocalypse line of explosions as soon as it starts casting, with countdowns. Includes a practice mode (`/stray test`). | `/stray` |
-| [Dancing Mad Helper](DancingMadHelper) | Dancing Mad (Ultimate) phase 4: real/fake callouts for Grand Cross debuffs, Mana Release and Chaos's Fire/Water. | `/dmuhelper` |
-| [Max Melee Ring](MaxMeleeRing) | Draws each enemy's maximum melee range on the ground. | `/maxmelee` |
-| [Materia Sweep](MateriaSweep) | Extracts materia from fully spiritbonded gear (and optionally retrieves melds) across your inventory and armoury chest. | `/materiasweep` |
+| [[TPlog] Stray Apocalypse Paths](StrayApocalypse) | Dancing Mad (Ultimate): draws the full path of each Stray Apocalypse line of explosions as soon as it starts casting, with countdowns. Includes a practice mode (`/stray test`). | `/stray` |
+| [[TPlog] Dancing Mad Helper](DancingMadHelper) | Dancing Mad (Ultimate) phase 4: real/fake callouts for Grand Cross debuffs, Mana Release and Chaos's Fire/Water. | `/dmuhelper` |
+| [[TPlog] Max Melee Ring](MaxMeleeRing) | Draws each enemy's maximum melee range on the ground. | `/maxmelee` |
+| [[TPlog] Materia Sweep](MateriaSweep) | Extracts materia from fully spiritbonded gear (and optionally retrieves melds) across your inventory and armoury chest. | `/materiasweep` |
 
 The Dancing Mad plugins were decoded from combat logs and are still being checked in game, so treat their
 callouts as a helper, not gospel. Each plugin's folder has a README with the details.
