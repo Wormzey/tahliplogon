@@ -7,7 +7,9 @@ the next circle to go off in each line gets a red outline, and each circle disap
 * `/stray` opens settings (radius, colours, fill, countdown, duty-only toggle).
 * `/stray test` loops the whole mechanic for practice: six sets 2.5 s apart, alternating NW and NE, each of the
   three NW and three NE starting pairs once in a random order (as in every logged pull). You stand where the arena
-  centre would be, and the layout is re-anchored on you every 23 s.
+  centre would be, and the layout is re-anchored on you every 23 s. A white ring shows the 20 y arena edge (no
+  player in the logs got further than 19.1 y from the centre), and a purple circle with a countdown marks each
+  starter outside it until it goes off, standing in for the game's own marker.
 * Build: `dotnet build -c Release`, then add `bin\Release\StrayApocalypse.dll` as a dev plugin.
 
 ## How the mechanic was decoded (ACT logs 2026-11-06 and 2026-11-07, 5 pulls, 60 starters)

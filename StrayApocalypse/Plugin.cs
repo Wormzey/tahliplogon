@@ -41,6 +41,14 @@ public sealed class Plugin : IDalamudPlugin
 
     private const string CommandName = "/stray";
     private const int CircleSegments = 48;
+
+    // Practice only. In the logs no player stood more than 19.1 y from the centre (100, 100) during the mechanic,
+    // so the arena is a 20 y radius circle. Starters cast from 25-30 y out and go off ~4.0 s after starting.
+    private const float ArenaRadius = 20f;
+    private const int ArenaSegments = 128;
+    private const float StarterDelay = 3.98f;
+    private static readonly Vector4 ArenaColor = new(1f, 1f, 1f, 0.6f);
+    private static readonly Vector4 StarterColor = new(0.85f, 0.4f, 1f, 1f);
     private const double PreviewLoopSeconds = 23.0; // last set starts at 12.5 s, its final explosion is at ~19.7 s
     private const double PreviewSetGap = 2.5;
 
@@ -69,6 +77,7 @@ public sealed class Plugin : IDalamudPlugin
 
     // Written on the framework thread, read on the draw thread.
     private volatile Lane[] lanes = Array.Empty<Lane>();
+    private volatile Vector3[] arena = []; // practice arena centre, when practising
 
     public Plugin(
         IDalamudPluginInterface pluginInterface,
@@ -131,6 +140,7 @@ public sealed class Plugin : IDalamudPlugin
             AddPreview(now, found);
 
         lanes = found.ToArray();
+        arena = preview && objectTable.LocalPlayer is not null ? [previewAnchor] : [];
     }
 
     private void ScanCasts(double now, List<Lane> found)
@@ -220,8 +230,9 @@ public sealed class Plugin : IDalamudPlugin
                 break;
 
             var (a, b, step) = previewOrder[set];
-            found.Add(new Lane(start, previewAnchor + a, step, true, set));
-            found.Add(new Lane(start, previewAnchor + b, step, true, set));
+            // No game omen in practice, so draw the starters too: they sit 25-30 y out, off the arena's edge.
+            found.Add(new Lane(start, previewAnchor + a, step, true, set, DrawStarter: true));
+            found.Add(new Lane(start, previewAnchor + b, step, true, set, DrawStarter: true));
         }
     }
 
@@ -266,18 +277,35 @@ public sealed class Plugin : IDalamudPlugin
     {
         windows.Draw();
 
+        var drawList = ImGui.GetBackgroundDrawList();
+        foreach (var centre in arena)
+            DrawCircle(drawList, centre, ArenaRadius, ImGui.ColorConvertFloat4ToU32(ArenaColor), 0u, ArenaSegments);
+
         var current = lanes;
         if (current.Length == 0)
             return;
 
         var now = Now;
-        var drawList = ImGui.GetBackgroundDrawList();
         var nextOutline = ImGui.ColorConvertFloat4ToU32(config.NextColor);
         var textColor = ImGui.ColorConvertFloat4ToU32(Vector4.One);
+        var starterOutline = ImGui.ColorConvertFloat4ToU32(StarterColor);
+        var starterFill = ImGui.ColorConvertFloat4ToU32(StarterColor with { W = 0.25f });
 
         foreach (var lane in current)
         {
             var elapsed = now - lane.CastStart;
+
+            // Practice only: stand-in for the game's omen on the starter, until it goes off.
+            if (lane.DrawStarter && elapsed <= StarterDelay + ExplodedGrace)
+            {
+                DrawCircle(drawList, lane.Origin, config.Radius, starterOutline, config.Fill ? starterFill : 0u);
+                if (config.ShowCountdown && gameGui.WorldToScreen(lane.Origin, out var starterScreen, out _))
+                {
+                    var label = Math.Max(0, StarterDelay - elapsed).ToString("0.0");
+                    drawList.AddText(starterScreen - ImGui.CalcTextSize(label) / 2, textColor, label);
+                }
+            }
+
             var exploding = elapsed >= StepTime(1);
             var odd = lane.Set % 2 == 0;
             var (setColor, opacity) = (odd, exploding) switch
@@ -316,15 +344,16 @@ public sealed class Plugin : IDalamudPlugin
         }
     }
 
-    private void DrawCircle(ImDrawListPtr drawList, Vector3 center, float radius, uint outline, uint fill)
+    private void DrawCircle(ImDrawListPtr drawList, Vector3 center, float radius, uint outline, uint fill,
+                            int segments = CircleSegments)
     {
-        Span<Vector2> points = stackalloc Vector2[CircleSegments];
-        Span<bool> inFront = stackalloc bool[CircleSegments];
+        Span<Vector2> points = stackalloc Vector2[segments];
+        Span<bool> inFront = stackalloc bool[segments];
         var allInFront = true;
 
-        for (var i = 0; i < CircleSegments; i++)
+        for (var i = 0; i < segments; i++)
         {
-            var angle = MathF.Tau * i / CircleSegments;
+            var angle = MathF.Tau * i / segments;
             var world = center + new Vector3(MathF.Cos(angle) * radius, 0f, MathF.Sin(angle) * radius);
 
             // The 3-argument overload returns whether the point is in front of the camera, and still projects
@@ -338,21 +367,21 @@ public sealed class Plugin : IDalamudPlugin
         {
             if (fill != 0)
             {
-                for (var i = 0; i < CircleSegments; i++)
+                for (var i = 0; i < segments; i++)
                     drawList.PathLineTo(points[i]);
                 drawList.PathFillConvex(fill);
             }
 
-            for (var i = 0; i < CircleSegments; i++)
+            for (var i = 0; i < segments; i++)
                 drawList.PathLineTo(points[i]);
             drawList.PathStroke(outline, ImDrawFlags.Closed, config.Thickness);
             return;
         }
 
         // Partly behind the camera: skip the fill and draw only the arcs that are in front.
-        for (var i = 0; i <= CircleSegments; i++)
+        for (var i = 0; i <= segments; i++)
         {
-            var j = i % CircleSegments;
+            var j = i % segments;
             if (inFront[j])
             {
                 drawList.PathLineTo(points[j]);
@@ -378,7 +407,8 @@ public sealed class Plugin : IDalamudPlugin
 }
 
 /// <summary>One starter's line: its start point, the per-explosion step, and when its cast began (plugin clock).</summary>
-internal readonly record struct Lane(double CastStart, Vector3 Origin, Vector3 Step, bool Valid, int Set);
+internal readonly record struct Lane(double CastStart, Vector3 Origin, Vector3 Step, bool Valid, int Set,
+                                     bool DrawStarter = false);
 
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
