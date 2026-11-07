@@ -189,6 +189,7 @@ public sealed class Plugin : IDalamudPlugin
         nextPlan = now + PlanInterval;
 
         planner.Reaction = config.ReactionTime;
+        planner.Buffer = config.SafetyBuffer;
         var centre = preview ? new Vector2(previewAnchor.X, previewAnchor.Z) : ArenaCentre;
         var spot = planner.Update(centre, new Vector2(me.Position.X, me.Position.Z), config.Radius, blasts);
         var y = current[0].Origin.Y;
@@ -483,6 +484,7 @@ public sealed class Configuration : IPluginConfiguration
     public bool ShowCountdown { get; set; } = true;
     public bool ShowSafeSpot { get; set; } = true;
     public float ReactionTime { get; set; } = 0.7f;
+    public float SafetyBuffer { get; set; } = 2f;
     public Vector4 SafeColor { get; set; } = new(0.2f, 1f, 0.35f, 1f);
     public Vector4 Color { get; set; } = new(1f, 0.55f, 0.1f, 0.9f);
     public Vector4 SecondColor { get; set; } = new(0.2f, 0.65f, 1f, 0.9f);
@@ -572,6 +574,13 @@ internal sealed class ConfigWindow : Window
         if (ImGui.SliderFloat("Your reaction time (s)", ref reaction, 0.3f, 1.2f, "%.2f"))
         {
             config.ReactionTime = reaction;
+            changed = true;
+        }
+
+        var buffer = config.SafetyBuffer;
+        if (ImGui.SliderFloat("Safety buffer beyond explosions (y)", ref buffer, 0f, 5f, "%.1f"))
+        {
+            config.SafetyBuffer = buffer;
             changed = true;
         }
 

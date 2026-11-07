@@ -49,9 +49,15 @@ internal readonly record struct Blast(Vector2 Pos, float In);
 /// at the moment it goes off, so a route that crosses an explosion counts as unsafe, not just the destination.
 /// People react at different speeds, so each route is checked across a spread of reaction times.
 ///
-/// Spots are ranked by how long until an announced explosion could hit you on the way or once there (all of them
-/// cleared ranks best), then by how far you'd run plus a little weight towards the centre. The current target is
-/// kept unless another is clearly better, so it doesn't flicker.
+/// Spots are ranked first by whether they clear every announced explosion, on the way and once there (if none do,
+/// whichever is hit latest). Then by a cost: how far you'd run, plus a little weight towards the centre, minus
+/// <see cref="MarginWeight"/> yalms for each yalm of margin you'd keep from the nearest explosion's edge as it goes off
+/// (counted up to <see cref="Buffer"/>). So it takes a slightly longer run for a wider berth, but not a much longer
+/// one. The current target is kept while it stays clear, unless another is clearly cheaper.
+///
+/// Why not a hard buffer: with 7 y explosions the lines cover the arena so densely that a spot keeping a few yalms
+/// from everything is often impossible. Making the buffer a must, or switching spots for margin alone, doubled the
+/// moves (to 9-16 per mechanic) for little extra clearance; this weighting cost ~0.3 extra moves.
 ///
 /// Simulated over all 36 set orders with a player who follows the circle (0.5-1.0 s reaction, 6 y/s), it was not
 /// hit at a 7 y radius, and moved about 5 times per Stray Apocalypse, ~5.6 s before the old spot would be hit.
@@ -62,12 +68,14 @@ internal sealed class SafeSpotPlanner
     public float Reaction = 0.7f;
     public float Speed = 6f;
     public float HitboxMargin = 0.5f;
+    public float Buffer = 2f;
     public float ArenaRadius = 20f;
     public float EdgeMargin = 1f;
     public float GridStep = 1f;
     public float CentreWeight = 0.25f;
     public float SwitchSeconds = 0.3f;
     public float SwitchCost = 3f;
+    public float MarginWeight = 2f;
 
     private static readonly float[] ReactionSpread = [0.4f, 0.7f, 1f, 1.4f, 2f];
 
@@ -126,8 +134,11 @@ internal sealed class SafeSpotPlanner
         foreach (var factor in ReactionSpread)
         {
             var s = Evaluate(spot, player, centre, reach, blasts, Reaction * factor);
-            if (worst is null || s.Danger < worst.Value.Danger)
-                worst = s;
+            worst = worst is not { } w ? s : w with
+            {
+                Danger = MathF.Min(w.Danger, s.Danger),
+                Margin = MathF.Min(w.Margin, s.Margin),
+            };
         }
 
         return worst!.Value;
@@ -140,27 +151,40 @@ internal sealed class SafeSpotPlanner
         var distance = path.Length();
         var direction = distance > 0.01f ? path / distance : Vector2.Zero;
         var danger = float.PositiveInfinity;
+        var margin = Buffer;
 
         foreach (var b in blasts)
         {
-            if (b.In < 0f || b.In >= danger)
+            if (b.In < 0f)
                 continue;
 
             var travelled = MathF.Min(distance, MathF.Max(0f, b.In - reaction) * Speed);
-            if (Vector2.Distance(player + direction * travelled, b.Pos) <= reach)
+            var gap = Vector2.Distance(player + direction * travelled, b.Pos) - reach;
+            if (gap < margin)
+                margin = gap;
+            if (gap <= 0f && b.In < danger)
                 danger = b.In;
         }
 
-        return new Score(danger, distance + CentreWeight * Vector2.Distance(spot, centre));
+        // each yalm of margin (up to the buffer) is worth MarginWeight yalms of running
+        var cost = distance + CentreWeight * Vector2.Distance(spot, centre) - MarginWeight * MathF.Max(0f, margin);
+        return new Score(danger, MathF.Max(0f, margin), cost);
     }
 
-    /// <summary><c>Danger</c>: seconds until something announced could hit you (infinity if nothing can).</summary>
-    private readonly record struct Score(float Danger, float Cost)
+    /// <summary>
+    /// <c>Danger</c>: seconds until something announced could hit you (infinity if nothing can).
+    /// <c>Margin</c>: the closest you'd come to an explosion's edge as it goes off, capped at the buffer.
+    /// </summary>
+    private readonly record struct Score(float Danger, float Margin, float Cost)
     {
         public bool BetterThan(Score other, float dangerMargin, float costMargin)
         {
-            var bothClear = float.IsPositiveInfinity(Danger) && float.IsPositiveInfinity(other.Danger);
-            if (!bothClear)
+            var clear = float.IsPositiveInfinity(Danger);
+            var otherClear = float.IsPositiveInfinity(other.Danger);
+            if (clear != otherClear)
+                return clear;
+
+            if (!clear)
             {
                 if (Danger > other.Danger + dangerMargin) return true;
                 if (Danger < other.Danger - dangerMargin) return false;

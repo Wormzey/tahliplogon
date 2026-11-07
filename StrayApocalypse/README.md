@@ -12,7 +12,11 @@ the next circle to go off in each line gets a red outline, and each circle disap
   and it only switches when another spot is clearly better. Simulated over all 36 set orders with a player
   following the circle (0.5-1.0 s reaction), it was never hit at 6 y or 7 y radius: about 5 moves per Stray
   Apocalypse, averaging ~5-6 y each (longest ~22 y), each shown ~5.6 s before the old spot would be hit. No spot is
-  safe for the whole mechanic, so you do have to move. Toggle, colour and reaction time in `/stray`.
+  safe for the whole mechanic, so you do have to move.
+  It also tries to keep a safety buffer (2 y by default) from the explosions' edges when that doesn't mean a much
+  longer run. At 7 y the explosions cover the arena so densely that a few yalms often isn't possible: in the
+  simulation the typical closest edge went from ~0.7 y to ~1.0 y at 7 y radius (~1.6 y at 6 y), for about 5 moves
+  instead of 4.7. Toggle, colour, reaction time and buffer in `/stray`.
 * `/stray test` loops the whole mechanic for practice: six sets 2.5 s apart, alternating NW and NE, each of the
   three NW and three NE starting pairs once in a random order (as in every logged pull). You stand where the arena
   centre would be, and the layout is re-anchored on you every 23 s. A white ring shows the 20 y arena edge (no
