@@ -3,7 +3,7 @@
     "Author": "Wormzey",
     "Name": "[TPlog] Dancing Mad Helper",
     "InternalName": "DancingMadHelper",
-    "AssemblyVersion": "0.0.0.3",
+    "AssemblyVersion": "0.0.0.4",
     "Punchline": "Real/fake callouts for Dancing Mad (Ultimate) phase 4.",
     "Description": "Reads Neo Exdeath's hidden real/fake flag and tells you whether your Compressed Water / Forked Lightning is a stack or spread, and whether your Acceleration Bomb needs stillness or motion.",
     "ApplicableVersion": "any",
@@ -20,7 +20,7 @@
     "DownloadLinkInstall": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/DancingMadHelper/latest.zip",
     "DownloadLinkUpdate": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/DancingMadHelper/latest.zip",
     "DownloadLinkTesting": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/DancingMadHelper/latest.zip",
-    "LastUpdate": 1794088939
+    "LastUpdate": 1794089345
   },
   {
     "Author": "Wormzey",
@@ -43,7 +43,7 @@
     "DownloadLinkInstall": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/MateriaSweep/latest.zip",
     "DownloadLinkUpdate": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/MateriaSweep/latest.zip",
     "DownloadLinkTesting": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/MateriaSweep/latest.zip",
-    "LastUpdate": 1794088939
+    "LastUpdate": 1794089345
   },
   {
     "Author": "Wormzey",
@@ -66,7 +66,7 @@
     "DownloadLinkInstall": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/MaxMeleeRing/latest.zip",
     "DownloadLinkUpdate": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/MaxMeleeRing/latest.zip",
     "DownloadLinkTesting": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/MaxMeleeRing/latest.zip",
-    "LastUpdate": 1794088939
+    "LastUpdate": 1794089345
   },
   {
     "Author": "Wormzey",
@@ -90,6 +90,6 @@
     "DownloadLinkInstall": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/StrayApocalypse/latest.zip",
     "DownloadLinkUpdate": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/StrayApocalypse/latest.zip",
     "DownloadLinkTesting": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/StrayApocalypse/latest.zip",
-    "LastUpdate": 1794088939
+    "LastUpdate": 1794089345
   }
 ]

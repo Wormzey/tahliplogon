@@ -158,7 +158,7 @@ public sealed class Plugin : IDalamudPlugin
         this.log = log;
 
         overlay = new OverlayWindow(() => current, config);
-        configWindow = new ConfigWindow(config, () => pluginInterface.SavePluginConfig(config));
+        configWindow = new ConfigWindow(config, () => pluginInterface.SavePluginConfig(config), overlay);
         windows.AddWindow(overlay);
         windows.AddWindow(configWindow);
 
@@ -182,7 +182,7 @@ public sealed class Plugin : IDalamudPlugin
         framework.Update += OnUpdate;
         commandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Show or hide the Dancing Mad helper window so you can position it. "
+            HelpMessage = "Preview the Dancing Mad helper window with sample callouts so you can position and size it. "
                 + "\"/dmuhelper config\" opens the settings. "
                 + "\"/dmuhelper chat\" switches the Fire/Water calls between party chat and your own chat (/e).",
         });
@@ -609,6 +609,29 @@ public sealed class Plugin : IDalamudPlugin
     private static readonly Vector4 Green = new(0.45f, 1.0f, 0.55f, 1f);
     private static readonly Vector4 Grey = new(0.75f, 0.75f, 0.75f, 1f);
 
+    /// <summary>One made-up line per enabled callout, so font, size and toggles can be judged outside the fight.</summary>
+    internal static Callout[] PreviewCallouts(Configuration config)
+    {
+        var lines = new List<Callout>();
+        if (config.ShowShriek) lines.Add(new Callout("Shriek", "LOOK AWAY", Red, 12f));
+        if (config.ShowStackSpread) lines.Add(new Callout("Water", "STACK", Blue, 21f));
+        if (config.ShowBomb) lines.Add(new Callout("Bomb", "STAND STILL", Yellow, 30f));
+        if (config.ShowTwisterDonut)
+        {
+            lines.Add(new Callout("Fire", "TWISTER (dodge)", Red, 45f));
+            lines.Add(new Callout("Water", "DONUT (stay)", Green, 69f));
+        }
+
+        if (config.ShowManaRelease)
+        {
+            lines.Add(new Callout("Thunder", "FALSE (INVERTED)", Red, float.NaN));
+            lines.Add(new Callout("Blizzard", "TRUE", Green, float.NaN));
+            lines.Add(new Callout("Mana Release", "STAND ON THUNDER", Yellow, float.NaN));
+        }
+
+        return lines.ToArray();
+    }
+
     private static Callout Resolve(uint status, ushort flag, float remaining)
     {
         var name = status switch
@@ -743,6 +766,8 @@ internal sealed class OverlayWindow : Window
     public override void Draw()
     {
         var items = source();
+        if (items.Length == 0 && Preview)
+            items = Plugin.PreviewCallouts(config); // live callouts win once the phase starts
 
         ImGui.SetWindowFontScale(config.FontScale);
         if (items.Length == 0)
@@ -763,17 +788,29 @@ internal sealed class ConfigWindow : Window
 {
     private readonly Configuration config;
     private readonly Action save;
+    private readonly OverlayWindow overlay;
 
-    public ConfigWindow(Configuration config, Action save)
+    public ConfigWindow(Configuration config, Action save, OverlayWindow overlay)
         : base("Dancing Mad helper settings##config", ImGuiWindowFlags.AlwaysAutoResize)
     {
         this.config = config;
         this.save = save;
+        this.overlay = overlay;
     }
 
     public override void Draw()
     {
         var changed = false;
+
+        // not saved: the overlay hides again outside the phase once preview is off
+        var preview = overlay.Preview;
+        if (ImGui.Checkbox("Preview overlay with sample callouts", ref preview))
+        {
+            overlay.Preview = preview;
+            overlay.IsOpen = preview || overlay.IsOpen;
+        }
+
+        ImGui.Separator();
 
         ImGui.TextUnformatted("Callouts");
         changed |= Toggle("Lightning / Water stack or spread", config.ShowStackSpread, v => config.ShowStackSpread = v);
