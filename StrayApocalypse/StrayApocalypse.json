@@ -1,0 +1,9 @@
+{
+  "Author": "Wormzey",
+  "RepoUrl": "https://github.com/Wormzey/tahliplogon",
+  "Name": "Stray Apocalypse Paths",
+  "InternalName": "StrayApocalypse",
+  "Punchline": "Draws the whole path of Kefka's Stray Apocalypse explosions as soon as each line starts casting.",
+  "Description": "In Dancing Mad (Ultimate), each Stray Apocalypse starter fires six more explosions in a straight diagonal line, one every half second. The game only marks the starter. This plugin draws all six follow-up circles on the ground the moment the starter begins casting, and removes each one once it has gone off.",
+  "Tags": ["raid", "ultimate", "dancing mad", "overlay"]
+}

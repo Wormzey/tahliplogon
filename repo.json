@@ -1,0 +1,95 @@
+[
+  {
+    "Author": "Wormzey",
+    "Name": "Dancing Mad Helper",
+    "InternalName": "DancingMadHelper",
+    "AssemblyVersion": "0.0.0.1",
+    "Punchline": "Real/fake callouts for Dancing Mad (Ultimate) phase 4.",
+    "Description": "Reads Neo Exdeath's hidden real/fake flag and tells you whether your Compressed Water / Forked Lightning is a stack or spread, and whether your Acceleration Bomb needs stillness or motion.",
+    "ApplicableVersion": "any",
+    "Tags": [
+      "raid",
+      "ultimate",
+      "dancing mad"
+    ],
+    "DalamudApiLevel": 15,
+    "LoadPriority": 0,
+    "RepoUrl": "https://github.com/Wormzey/tahliplogon",
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "DownloadLinkInstall": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/DancingMadHelper/latest.zip",
+    "DownloadLinkUpdate": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/DancingMadHelper/latest.zip",
+    "DownloadLinkTesting": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/DancingMadHelper/latest.zip",
+    "LastUpdate": 1794087986
+  },
+  {
+    "Author": "Wormzey",
+    "Name": "Materia Sweep",
+    "InternalName": "MateriaSweep",
+    "AssemblyVersion": "0.0.0.1",
+    "Punchline": "Extracts and retrieves materia across your inventory and armoury chest in one click.",
+    "Description": "Goes through your inventory and armoury chest one item at a time, extracting materia from fully spiritbonded gear and optionally retrieving melded materia. Can skip anything registered to a gear set. Open with /materiasweep.",
+    "ApplicableVersion": "any",
+    "Tags": [
+      "materia",
+      "inventory",
+      "automation"
+    ],
+    "DalamudApiLevel": 15,
+    "LoadPriority": 0,
+    "RepoUrl": "https://github.com/Wormzey/tahliplogon",
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "DownloadLinkInstall": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/MateriaSweep/latest.zip",
+    "DownloadLinkUpdate": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/MateriaSweep/latest.zip",
+    "DownloadLinkTesting": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/MateriaSweep/latest.zip",
+    "LastUpdate": 1794087986
+  },
+  {
+    "Author": "Wormzey",
+    "Name": "Max Melee Ring",
+    "InternalName": "MaxMeleeRing",
+    "AssemblyVersion": "0.0.0.1",
+    "Punchline": "Draws each enemy's maximum melee range on the ground.",
+    "Description": "Draws a red ring around enemies at the furthest distance your melee actions can reach, so you can hold max melee while dodging. Keep your character's centre inside the ring.",
+    "ApplicableVersion": "any",
+    "Tags": [
+      "melee",
+      "positioning",
+      "overlay"
+    ],
+    "DalamudApiLevel": 15,
+    "LoadPriority": 0,
+    "RepoUrl": "https://github.com/Wormzey/tahliplogon",
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "DownloadLinkInstall": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/MaxMeleeRing/latest.zip",
+    "DownloadLinkUpdate": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/MaxMeleeRing/latest.zip",
+    "DownloadLinkTesting": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/MaxMeleeRing/latest.zip",
+    "LastUpdate": 1794087986
+  },
+  {
+    "Author": "Wormzey",
+    "Name": "Stray Apocalypse Paths",
+    "InternalName": "StrayApocalypse",
+    "AssemblyVersion": "0.0.0.1",
+    "Punchline": "Draws the whole path of Kefka's Stray Apocalypse explosions as soon as each line starts casting.",
+    "Description": "In Dancing Mad (Ultimate), each Stray Apocalypse starter fires six more explosions in a straight diagonal line, one every half second. The game only marks the starter. This plugin draws all six follow-up circles on the ground the moment the starter begins casting, and removes each one once it has gone off.",
+    "ApplicableVersion": "any",
+    "Tags": [
+      "raid",
+      "ultimate",
+      "dancing mad",
+      "overlay"
+    ],
+    "DalamudApiLevel": 15,
+    "LoadPriority": 0,
+    "RepoUrl": "https://github.com/Wormzey/tahliplogon",
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "DownloadLinkInstall": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/StrayApocalypse/latest.zip",
+    "DownloadLinkUpdate": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/StrayApocalypse/latest.zip",
+    "DownloadLinkTesting": "https://raw.githubusercontent.com/Wormzey/tahliplogon/master/dist/StrayApocalypse/latest.zip",
+    "LastUpdate": 1794087986
+  }
+]

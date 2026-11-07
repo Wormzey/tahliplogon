@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="DancingMadHelper/DancingMadHelper.csproj" />
+  <Project Path="MateriaSweep/MateriaSweep.csproj" />
+  <Project Path="MaxMeleeRing/MaxMeleeRing.csproj" />
+  <Project Path="StrayApocalypse/StrayApocalypse.csproj" />
+</Solution>

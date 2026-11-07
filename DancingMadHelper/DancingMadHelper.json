@@ -1,0 +1,9 @@
+{
+  "Author": "Wormzey",
+  "RepoUrl": "https://github.com/Wormzey/tahliplogon",
+  "Name": "Dancing Mad Helper",
+  "InternalName": "DancingMadHelper",
+  "Punchline": "Real/fake callouts for Dancing Mad (Ultimate) phase 4.",
+  "Description": "Reads Neo Exdeath's hidden real/fake flag and tells you whether your Compressed Water / Forked Lightning is a stack or spread, and whether your Acceleration Bomb needs stillness or motion.",
+  "Tags": ["raid", "ultimate", "dancing mad"]
+}

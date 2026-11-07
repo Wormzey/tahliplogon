@@ -1,0 +1,9 @@
+{
+  "Author": "Wormzey",
+  "RepoUrl": "https://github.com/Wormzey/tahliplogon",
+  "Name": "Materia Sweep",
+  "InternalName": "MateriaSweep",
+  "Punchline": "Extracts and retrieves materia across your inventory and armoury chest in one click.",
+  "Description": "Goes through your inventory and armoury chest one item at a time, extracting materia from fully spiritbonded gear and optionally retrieving melded materia. Can skip anything registered to a gear set. Open with /materiasweep.",
+  "Tags": ["materia", "inventory", "automation"]
+}
