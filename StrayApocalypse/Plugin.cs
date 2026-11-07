@@ -46,12 +46,8 @@ public sealed class Plugin : IDalamudPlugin
     // so the arena is a 20 y radius circle. Starters cast from 25-30 y out and go off ~4.0 s after starting.
     private const float ArenaRadius = 20f;
     private static readonly Vector2 ArenaCentre = new(100f, 100f); // world X/Z of the real arena's centre
-    private const float SafeMargin = 1f;        // extra clearance beyond the explosion radius, for your hitbox
-    private const float SafeEdgeMargin = 1f;    // keep the spot off the arena edge
-    private const float SafeGridStep = 1f;
     private const float SafeSpotRadius = 1.5f;
-    private const float SafeHoldSeconds = 2f;   // when nowhere is clear, stay until the next hit is this close
-    private const float SafeRunSpeed = 5f;      // y/s; a little under base run speed (~6 y/s), for reaction time
+    private const double PlanInterval = 0.1;
     private const int ArenaSegments = 128;
     private const float StarterDelay = 3.98f;
     private static readonly Vector4 ArenaColor = new(1f, 1f, 1f, 0.6f);
@@ -86,7 +82,8 @@ public sealed class Plugin : IDalamudPlugin
     private volatile Lane[] lanes = Array.Empty<Lane>();
     private volatile Vector3[] arena = []; // practice arena centre, when practising
     private volatile Vector3[] safe = [];  // the green safest spot, when there is one
-    private Vector2? safeSpot;             // framework thread only
+    private readonly SafeSpotPlanner planner = new(); // framework thread only
+    private double nextPlan;
 
     public Plugin(
         IDalamudPluginInterface pluginInterface,
@@ -155,15 +152,14 @@ public sealed class Plugin : IDalamudPlugin
     }
 
     /// <summary>
-    /// Picks the spot closest to the arena centre that no announced, not-yet-exploded circle covers (plus a margin
-    /// for your hitbox). It stays put while it remains clear, and only moves when a newly announced line would hit
-    /// it. If nowhere is clear, it picks the spot whose next hit is furthest away. Only starters that have begun
-    /// casting are known, so this is "safest given what's announced so far", not a full solution.
+    /// Feeds the announced, not-yet-exploded circles and your position to <see cref="SafeSpotPlanner"/>, which picks
+    /// a spot you can reach in time at normal run speed after reacting (see SafeSpot.cs).
     /// </summary>
     private void UpdateSafeSpot(double now, Lane[] current)
     {
-        var pending = new List<(Vector2 Pos, float In)>();
-        if (config.ShowSafeSpot)
+        var me = objectTable.LocalPlayer;
+        var blasts = new List<Blast>();
+        if (config.ShowSafeSpot && me is not null)
         {
             foreach (var lane in current)
             {
@@ -175,89 +171,28 @@ public sealed class Plugin : IDalamudPlugin
                         continue;
 
                     var p = lane.Origin + lane.Step * k;
-                    pending.Add((new Vector2(p.X, p.Z), fire - elapsed));
+                    blasts.Add(new Blast(new Vector2(p.X, p.Z), fire - elapsed));
                 }
             }
         }
 
-        if (pending.Count == 0)
+        if (blasts.Count == 0 || me is null)
         {
-            safeSpot = null;
+            planner.Reset();
             safe = [];
             return;
         }
 
-        var y = current[0].Origin.Y;
+        // A full pass is a few milliseconds, so run it ten times a second rather than every frame.
+        if (now < nextPlan && safe.Length > 0)
+            return;
+        nextPlan = now + PlanInterval;
+
+        planner.Reaction = config.ReactionTime;
         var centre = preview ? new Vector2(previewAnchor.X, previewAnchor.Z) : ArenaCentre;
-        var reach = config.Radius + SafeMargin;
-
-        float TimeToHit(Vector2 q)
-        {
-            var soonest = float.PositiveInfinity;
-            foreach (var (pos, inSeconds) in pending)
-            {
-                if (inSeconds < soonest && Vector2.Distance(q, pos) <= reach)
-                    soonest = inSeconds;
-            }
-
-            return soonest;
-        }
-
-        // Keep the current spot while it's clear and still in this arena (practice re-anchors every loop).
-        var keptTime = float.NegativeInfinity;
-        if (safeSpot is { } kept && Vector2.Distance(kept, centre) <= ArenaRadius)
-        {
-            keptTime = TimeToHit(kept);
-            if (float.IsPositiveInfinity(keptTime))
-            {
-                safe = [new Vector3(kept.X, y, kept.Y)];
-                return;
-            }
-        }
-
-        // When moving off a spot that's about to be hit, prefer spots you can run to before that hit.
-        var from = safeSpot;
-        var runBudget = from is not null && keptTime > 0 ? SafeRunSpeed * keptTime : float.PositiveInfinity;
-
-        Vector2? best = null;
-        var bestReachable = false;
-        var bestTime = float.NegativeInfinity;
-        var bestDistance = float.PositiveInfinity;
-        var limit = ArenaRadius - SafeEdgeMargin;
-        for (var dx = -limit; dx <= limit; dx += SafeGridStep)
-        {
-            for (var dz = -limit; dz <= limit; dz += SafeGridStep)
-            {
-                var offset = new Vector2(dx, dz);
-                var distance = offset.Length();
-                if (distance > limit)
-                    continue;
-
-                var candidate = centre + offset;
-                var reachable = from is not { } f || Vector2.Distance(candidate, f) <= runBudget;
-                if (!reachable && bestReachable)
-                    continue;
-
-                var time = TimeToHit(candidate);
-                var later = float.IsPositiveInfinity(time) ? !float.IsPositiveInfinity(bestTime) : time > bestTime + 0.05f;
-                var tie = float.IsPositiveInfinity(time) ? float.IsPositiveInfinity(bestTime) : MathF.Abs(time - bestTime) <= 0.05f;
-                if ((reachable && !bestReachable) || later || (tie && distance < bestDistance))
-                {
-                    best = candidate;
-                    bestReachable = reachable;
-                    bestTime = time;
-                    bestDistance = distance;
-                }
-            }
-        }
-
-        // When nowhere is clear, hold position until the current spot's next hit is close, rather than chasing
-        // whichever spot is a fraction of a second better each frame.
-        if (safeSpot is { } held && !float.IsPositiveInfinity(bestTime) && keptTime >= SafeHoldSeconds)
-            best = held;
-
-        safeSpot = best;
-        safe = best is { } b ? [new Vector3(b.X, y, b.Y)] : [];
+        var spot = planner.Update(centre, new Vector2(me.Position.X, me.Position.Z), config.Radius, blasts);
+        var y = current[0].Origin.Y;
+        safe = spot is { } s ? [new Vector3(s.X, y, s.Y)] : [];
     }
 
     private void ScanCasts(double now, List<Lane> found)
@@ -547,6 +482,7 @@ public sealed class Configuration : IPluginConfiguration
     public float FillOpacity { get; set; } = 0.2f;
     public bool ShowCountdown { get; set; } = true;
     public bool ShowSafeSpot { get; set; } = true;
+    public float ReactionTime { get; set; } = 0.7f;
     public Vector4 SafeColor { get; set; } = new(0.2f, 1f, 0.35f, 1f);
     public Vector4 Color { get; set; } = new(1f, 0.55f, 0.1f, 0.9f);
     public Vector4 SecondColor { get; set; } = new(0.2f, 0.65f, 1f, 0.9f);
@@ -629,6 +565,13 @@ internal sealed class ConfigWindow : Window
         if (ImGui.ColorEdit4("##safecolour", ref safeColor, ImGuiColorEditFlags.NoInputs))
         {
             config.SafeColor = safeColor;
+            changed = true;
+        }
+
+        var reaction = config.ReactionTime;
+        if (ImGui.SliderFloat("Your reaction time (s)", ref reaction, 0.3f, 1.2f, "%.2f"))
+        {
+            config.ReactionTime = reaction;
             changed = true;
         }
 

@@ -5,11 +5,14 @@ six follow-up explosions on the ground, with a countdown on each. Sets alternate
 the next circle to go off in each line gets a red outline, and each circle disappears once it has exploded.
 
 * `/stray` opens settings (radius, colours, fill, countdown, duty-only toggle).
-* A green circle marks the safest spot given the lines announced so far: the point closest to the arena centre
-  that no pending circle covers (with 1 y to spare). It stays put while it's clear, and when a new line would hit
-  it, it moves to a spot you can reach at 5 y/s before that hit. Simulated over all 36 set orders, the green spot
-  was never hit (at 6 y and 7 y radius), with about 4-5 moves per Stray Apocalypse. No spot is safe for the whole
-  mechanic, so you do have to move. Toggle and colour in `/stray`.
+* A green circle marks where to stand, given the lines announced so far. It plans from where you are: it assumes
+  you react after your reaction time (0.7 s by default, set in `/stray`) and then run straight there at normal run
+  speed (6 y/s, no sprint), and checks every announced explosion against where you'd be when it goes off, so the
+  route is safe as well as the spot. Among safe spots it prefers short runs, with a little pull towards the centre,
+  and it only switches when another spot is clearly better. Simulated over all 36 set orders with a player
+  following the circle (0.5-1.0 s reaction), it was never hit at 6 y or 7 y radius: about 5 moves per Stray
+  Apocalypse, averaging ~5-6 y each (longest ~22 y), each shown ~5.6 s before the old spot would be hit. No spot is
+  safe for the whole mechanic, so you do have to move. Toggle, colour and reaction time in `/stray`.
 * `/stray test` loops the whole mechanic for practice: six sets 2.5 s apart, alternating NW and NE, each of the
   three NW and three NE starting pairs once in a random order (as in every logged pull). You stand where the arena
   centre would be, and the layout is re-anchored on you every 23 s. A white ring shows the 20 y arena edge (no
