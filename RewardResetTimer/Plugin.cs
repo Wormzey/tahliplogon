@@ -13,6 +13,7 @@ using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using Lumina.Excel.Sheets;
+using Lumina.Text.ReadOnly;
 using Action = System.Action;
 
 namespace RewardResetTimer;
@@ -27,9 +28,9 @@ namespace RewardResetTimer;
 ///
 /// The text lives in the duty detail pane beside the Duty Finder, which is its own addon. Rather than hard-code
 /// that addon's name, while the Duty Finder is open every visible addon is searched about twice a second, and the
-/// ones holding the text are then re-measured every frame. Text matches exactly (ignoring case and trailing
-/// punctuation) against the game's own Addon sheet rows, read in the client's language, so unrelated text that
-/// merely contains the phrase can't trigger it.
+/// ones holding the text are then re-measured every frame. The node's colour macros are stripped first, then short
+/// text (up to MaxMatchLength characters) containing one of the phrases matches; the phrases also come from the
+/// game's own Addon sheet in the client's language. The length cap keeps sentences that mention it from matching.
 ///
 /// The game's nodes are never edited: the countdown is an ImGui overlay drawn at the node's on-screen position.
 /// </summary>
@@ -38,6 +39,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
     private const string CommandName = "/rewardreset";
     private const string DutyFinderAddon = "ContentsFinder";
     private const int MaxNodeDepth = 8;
+    private const int MaxMatchLength = 48;
 
     private static readonly string[] EnglishTexts = { "Reward already received", "Reward already claimed" };
     private static readonly TimeSpan DiscoveryInterval = TimeSpan.FromMilliseconds(500);
@@ -88,7 +90,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
         pluginInterface.UiBuilder.OpenMainUi += configWindow.Toggle;
         commandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open Reward Reset Timer settings. \"/rewardreset time\" prints both countdowns to chat.",
+            HelpMessage = "Open Reward Reset Timer settings. \"/rewardreset time\" prints both countdowns to chat; \"/rewardreset debug\" logs the Duty Finder's text for troubleshooting.",
         });
     }
 
@@ -103,6 +105,12 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
     private void OnCommand(string command, string arguments)
     {
+        if (arguments.Trim().Equals("debug", StringComparison.OrdinalIgnoreCase))
+        {
+            DumpTextNodes();
+            return;
+        }
+
         if (arguments.Trim().Equals("time", StringComparison.OrdinalIgnoreCase))
         {
             var now = DateTime.UtcNow;
@@ -147,6 +155,45 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
     private static string Normalise(string text) => text.Trim().TrimEnd('.', '。', '!', '！', ' ');
 
+    /// <summary>
+    /// The node's visible text. The raw bytes carry colour/edge macros (the reward line is orange), so they
+    /// have to be stripped before comparing.
+    /// </summary>
+    private static string ReadText(AtkTextNode* node)
+    {
+        var bytes = node->NodeText.AsSpan();
+        if (bytes.IsEmpty)
+            return string.Empty;
+
+        try
+        {
+            return new ReadOnlySeStringSpan(bytes).ExtractText();
+        }
+        catch
+        {
+            return node->NodeText.ToString();
+        }
+    }
+
+    /// <summary>
+    /// Short text that contains one of the phrases. Exact equality failed in game, so allow a little extra
+    /// around it, but cap the length so long sentences that merely mention it don't match.
+    /// </summary>
+    private bool IsRewardText(string text)
+    {
+        text = Normalise(text);
+        if (text.Length == 0 || text.Length > MaxMatchLength)
+            return false;
+
+        foreach (var needle in needles)
+        {
+            if (text.Contains(needle, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
     private HashSet<string> BuildNeedles(IDataManager dataManager)
     {
         var result = new HashSet<string>(EnglishTexts, StringComparer.OrdinalIgnoreCase);
@@ -157,7 +204,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
             foreach (var row in english)
             {
                 var text = Normalise(row.Text.ExtractText());
-                if (!EnglishTexts.Any(t => t.Equals(text, StringComparison.OrdinalIgnoreCase)))
+                if (text.Length > MaxMatchLength || !EnglishTexts.Any(t => text.Contains(t, StringComparison.OrdinalIgnoreCase)))
                     continue;
 
                 if (local.GetRowOrDefault(row.RowId) is { } localRow && Normalise(localRow.Text.ExtractText()) is { Length: > 0 } localText)
@@ -170,6 +217,65 @@ public sealed unsafe class Plugin : IDalamudPlugin
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Logs every visible text node mentioning "reward" or "already", with its addon, node ID, plain text and raw
+    /// bytes, so a miss can be diagnosed from /xllog.
+    /// </summary>
+    private void DumpTextNodes()
+    {
+        var manager = RaptureAtkUnitManager.Instance();
+        if (manager == null)
+            return;
+
+        var found = 0;
+        var list = &manager->AtkUnitManager.AllLoadedUnitsList;
+        for (var i = 0; i < list->Count; i++)
+        {
+            var addon = list->Entries[i].Value;
+            if (addon == null || !addon->IsVisible || addon->UldManager.LoadedState != AtkLoadState.Loaded)
+                continue;
+
+            found += DumpTextNodes(addon->NameString, &addon->UldManager, 0);
+        }
+
+        log.Information($"[debug] {found} matching text node(s). Matching on: {string.Join(" | ", needles)}");
+        chatGui.Print($"[Reward Reset Timer] Logged {found} text node(s) mentioning \"reward\"/\"already\" to /xllog.");
+    }
+
+    private int DumpTextNodes(string addonName, AtkUldManager* uld, int depth)
+    {
+        if (depth > MaxNodeDepth || uld == null || uld->NodeList == null)
+            return 0;
+
+        var found = 0;
+        for (var i = 0; i < uld->NodeListCount; i++)
+        {
+            var node = uld->NodeList[i];
+            if (node == null)
+                continue;
+
+            if (node->Type == NodeType.Text)
+            {
+                var text = ReadText((AtkTextNode*)node);
+                if (!text.Contains("reward", StringComparison.OrdinalIgnoreCase) && !text.Contains("already", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var raw = Convert.ToHexString(((AtkTextNode*)node)->NodeText.AsSpan());
+                log.Information($"[debug] {addonName} node {node->NodeId} depth {depth} visible={node->IsVisible()} " +
+                                $"shown={IsShownOnScreen(node)} matches={IsRewardText(text)} text=\"{text}\" raw={raw}");
+                found++;
+            }
+            else if ((int)node->Type >= 1000)
+            {
+                var component = ((AtkComponentNode*)node)->Component;
+                if (component != null)
+                    found += DumpTextNodes(addonName, &component->UldManager, depth + 1);
+            }
+        }
+
+        return found;
     }
 
     // ---- drawing --------------------------------------------------------------------------------------------
@@ -303,7 +409,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
             if (node->Type == NodeType.Text)
             {
                 var text = (AtkTextNode*)node;
-                if (needles.Contains(Normalise(text->NodeText.ToString())) && IsShownOnScreen(node))
+                if (IsRewardText(ReadText(text)) && IsShownOnScreen(node))
                     matches.Add(Measure(text));
             }
             else if ((int)node->Type >= 1000)
