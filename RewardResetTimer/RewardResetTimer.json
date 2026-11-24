@@ -1,0 +1,9 @@
+{
+  "Author": "Wormzey",
+  "RepoUrl": "https://github.com/Wormzey/tahliplogon",
+  "Name": "[TPlog] Reward Reset Timer",
+  "InternalName": "RewardResetTimer",
+  "Punchline": "Shows when daily and weekly duty rewards refresh, right next to \"Reward already claimed\" in the Duty Finder.",
+  "Description": "Adds a countdown beside the Duty Finder's \"Reward already claimed\" text: the daily reset (15:00 UTC) for roulettes, and the weekly reset (Tuesday 08:00 UTC) for other duties. /rewardreset opens settings and prints both timers to chat.",
+  "Tags": ["duty finder", "roulette", "reset", "timer", "ui"]
+}

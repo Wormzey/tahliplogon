@@ -3,4 +3,5 @@
   <Project Path="MateriaSweep/MateriaSweep.csproj" />
   <Project Path="MaxMeleeRing/MaxMeleeRing.csproj" />
   <Project Path="StrayApocalypse/StrayApocalypse.csproj" />
+  <Project Path="RewardResetTimer/RewardResetTimer.csproj" />
 </Solution>
