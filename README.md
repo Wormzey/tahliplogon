@@ -21,7 +21,7 @@ Dalamud plugins for FFXIV.
 | [[TPlog] Dancing Mad Helper](DancingMadHelper) | Dancing Mad (Ultimate) phase 4: real/fake callouts for Grand Cross debuffs, Cursed Shriek, Mana Release and Chaos's Fire/Water, with a settings window. | `/dmuhelper` |
 | [[TPlog] Max Melee Ring](MaxMeleeRing) | Draws each enemy's maximum melee range on the ground. | `/maxmelee` |
 | [[TPlog] Materia Sweep](MateriaSweep) | Extracts materia from fully spiritbonded gear (and optionally retrieves melds) across your inventory and armoury chest. | `/materiasweep` |
-| [[TPlog] Reward Reset Timer](RewardResetTimer) | Shows a countdown to the daily (roulettes) or weekly reset next to "Reward already claimed" in the Duty Finder. | `/rewardreset` |
+| [[TPlog] Reward Reset Timer](RewardResetTimer) | Shows a countdown to the daily (roulettes) or weekly reset next to "Reward already received" in the Duty Finder. | `/rewardreset` |
 
 The Dancing Mad plugins were decoded from combat logs and are still being checked in game, so treat their
 callouts as a helper, not gospel. Each plugin's folder has a README with the details.

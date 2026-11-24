@@ -9,6 +9,7 @@ using Dalamud.Game.Command;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using Lumina.Excel.Sheets;
@@ -17,22 +18,29 @@ using Action = System.Action;
 namespace RewardResetTimer;
 
 /// <summary>
-/// Draws a countdown next to every visible "Reward already claimed" text node in the Duty Finder.
+/// Draws a countdown next to the "Reward already received" text that the Duty Finder shows for a duty whose
+/// bonus has been claimed.
 ///
-/// Roulette bonuses reset daily at 15:00 UTC; everything else in the Duty Finder that shows the text (raid loot and
-/// the like) resets weekly on Tuesday at 08:00 UTC. Which one applies is taken from the selected entry's content
-/// type in AgentContentsFinder.
+/// Roulette bonuses reset daily at 15:00 UTC; everything else that shows the text (raid loot and the like) resets
+/// weekly on Tuesday at 08:00 UTC. Which one applies is taken from the selected entry's content type in
+/// AgentContentsFinder.
 ///
-/// The text to look for comes from the game's own Addon sheet (any English row containing "already claimed",
-/// read back in the client's language), so it works on non-English clients. The game's nodes are never edited:
-/// the countdown is an ImGui overlay drawn at the node's on-screen position.
+/// The text lives in the duty detail pane beside the Duty Finder, which is its own addon. Rather than hard-code
+/// that addon's name, while the Duty Finder is open every visible addon is searched about twice a second, and the
+/// ones holding the text are then re-measured every frame. Text matches exactly (ignoring case and trailing
+/// punctuation) against the game's own Addon sheet rows, read in the client's language, so unrelated text that
+/// merely contains the phrase can't trigger it.
+///
+/// The game's nodes are never edited: the countdown is an ImGui overlay drawn at the node's on-screen position.
 /// </summary>
 public sealed unsafe class Plugin : IDalamudPlugin
 {
     private const string CommandName = "/rewardreset";
-    private const string AddonName = "ContentsFinder";
-    private const string EnglishNeedle = "already claimed";
+    private const string DutyFinderAddon = "ContentsFinder";
     private const int MaxNodeDepth = 8;
+
+    private static readonly string[] EnglishTexts = { "Reward already received", "Reward already claimed" };
+    private static readonly TimeSpan DiscoveryInterval = TimeSpan.FromMilliseconds(500);
 
     internal static readonly TimeSpan DailyResetUtc = TimeSpan.FromHours(15);
     internal static readonly TimeSpan WeeklyResetUtc = TimeSpan.FromHours(8);
@@ -47,8 +55,12 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
     private readonly WindowSystem windows = new("RewardResetTimer");
     private readonly ConfigWindow configWindow;
-    private readonly string[] needles;
+    private readonly HashSet<string> needles;
     private readonly List<Match> matches = new();
+    private readonly HashSet<string> hostAddons = new();
+    private readonly HashSet<string> loggedHosts = new();
+
+    private DateTime nextDiscovery;
 
     public Plugin(
         IDalamudPluginInterface pluginInterface,
@@ -66,7 +78,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
         config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
 
         needles = BuildNeedles(dataManager);
-        log.Information($"Matching Duty Finder text: {string.Join(" | ", needles.Select(n => $"\"{n}\""))}");
+        log.Information($"Matching reward text: {string.Join(" | ", needles.Select(n => $"\"{n}\""))}");
 
         configWindow = new ConfigWindow(config, () => pluginInterface.SavePluginConfig(config));
         windows.AddWindow(configWindow);
@@ -133,24 +145,23 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
     // ---- text lookup ----------------------------------------------------------------------------------------
 
-    private string[] BuildNeedles(IDataManager dataManager)
+    private static string Normalise(string text) => text.Trim().TrimEnd('.', '。', '!', '！', ' ');
+
+    private HashSet<string> BuildNeedles(IDataManager dataManager)
     {
-        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { EnglishNeedle };
+        var result = new HashSet<string>(EnglishTexts, StringComparer.OrdinalIgnoreCase);
         try
         {
             var english = dataManager.GetExcelSheet<Addon>(ClientLanguage.English);
             var local = dataManager.GetExcelSheet<Addon>();
             foreach (var row in english)
             {
-                if (!row.Text.ExtractText().Contains(EnglishNeedle, StringComparison.OrdinalIgnoreCase))
+                var text = Normalise(row.Text.ExtractText());
+                if (!EnglishTexts.Any(t => t.Equals(text, StringComparison.OrdinalIgnoreCase)))
                     continue;
 
-                if (local.GetRowOrDefault(row.RowId) is { } localRow)
-                {
-                    var text = localRow.Text.ExtractText().Trim().TrimEnd('.', '。', '!', '！');
-                    if (text.Length > 0)
-                        result.Add(text);
-                }
+                if (local.GetRowOrDefault(row.RowId) is { } localRow && Normalise(localRow.Text.ExtractText()) is { Length: > 0 } localText)
+                    result.Add(localText);
             }
         }
         catch (Exception e)
@@ -158,18 +169,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
             log.Warning(e, "Couldn't read the Addon sheet; falling back to English text only.");
         }
 
-        return result.ToArray();
-    }
-
-    private bool IsRewardClaimedText(string text)
-    {
-        foreach (var needle in needles)
-        {
-            if (text.Contains(needle, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        return false;
+        return result;
     }
 
     // ---- drawing --------------------------------------------------------------------------------------------
@@ -195,32 +195,84 @@ public sealed unsafe class Plugin : IDalamudPlugin
 
     private void DrawOverlay()
     {
-        var addon = (AtkUnitBase*)gameGui.GetAddonByName(AddonName).Address;
-        if (addon == null || !addon->IsVisible || addon->UldManager.LoadedState != AtkLoadState.Loaded)
+        var finder = (AtkUnitBase*)gameGui.GetAddonByName(DutyFinderAddon).Address;
+        if (finder == null || !finder->IsVisible)
+        {
+            hostAddons.Clear();
             return;
+        }
 
         matches.Clear();
-        CollectMatches(&addon->UldManager, 0);
+        var now = DateTime.UtcNow;
+        if (now >= nextDiscovery)
+        {
+            nextDiscovery = now + DiscoveryInterval;
+            Discover();
+        }
+        else
+        {
+            foreach (var name in hostAddons)
+            {
+                var addon = (AtkUnitBase*)gameGui.GetAddonByName(name).Address;
+                if (addon != null && addon->IsVisible && addon->UldManager.LoadedState == AtkLoadState.Loaded)
+                    CollectMatches(&addon->UldManager, 0);
+            }
+        }
+
         if (matches.Count == 0)
             return;
 
-        var now = DateTime.UtcNow;
         var weekly = SelectedIsWeekly();
         var left = (weekly ? NextWeeklyReset(now) : NextDailyReset(now)) - now;
         var label = $"{(config.ShowKind ? weekly ? "Weekly reset: " : "Daily reset: " : "")}{Format(left, config.ShowSeconds)}";
 
         var drawList = ImGui.GetForegroundDrawList();
         var font = ImGui.GetFont();
-        var fontSize = ImGui.GetFontSize() * config.FontScale * addon->Scale;
-        var textSize = ImGui.CalcTextSize(label) * (fontSize / ImGui.GetFontSize());
-        var color = ImGui.ColorConvertFloat4ToU32(config.Color);
-        var shadow = ImGui.ColorConvertFloat4ToU32(new Vector4(0, 0, 0, config.Color.W * 0.85f));
+        var colour = config.TextColour;
+        var shadow = ImGui.ColorConvertFloat4ToU32(new Vector4(0, 0, 0, ImGui.ColorConvertU32ToFloat4(colour).W * 0.85f));
 
         foreach (var m in matches)
         {
-            var pos = new Vector2(m.Right + config.Gap * addon->Scale, m.CenterY - textSize.Y / 2);
+            var fontSize = ImGui.GetFontSize() * config.FontScale * m.Scale;
+            var size = ImGui.CalcTextSize(label) * (fontSize / ImGui.GetFontSize());
+            var gap = config.Gap * m.Scale;
+            var pos = config.Placement switch
+            {
+                Placement.Left => new Vector2(m.Left - gap - size.X, m.CenterY - size.Y / 2),
+                Placement.Right => new Vector2(m.Right + gap, m.CenterY - size.Y / 2),
+                Placement.Above => new Vector2(m.Right - size.X, m.Top - gap - size.Y),
+                _ => new Vector2(m.Right - size.X, m.Bottom + gap),
+            };
+
             drawList.AddText(font, fontSize, pos + Vector2.One, shadow, label);
-            drawList.AddText(font, fontSize, pos, color, label);
+            drawList.AddText(font, fontSize, pos, colour, label);
+        }
+    }
+
+    /// <summary>Searches every visible addon and remembers which ones hold the reward text.</summary>
+    private void Discover()
+    {
+        hostAddons.Clear();
+        var manager = RaptureAtkUnitManager.Instance();
+        if (manager == null)
+            return;
+
+        var list = &manager->AtkUnitManager.AllLoadedUnitsList;
+        for (var i = 0; i < list->Count; i++)
+        {
+            var addon = list->Entries[i].Value;
+            if (addon == null || !addon->IsVisible || addon->UldManager.LoadedState != AtkLoadState.Loaded)
+                continue;
+
+            var before = matches.Count;
+            CollectMatches(&addon->UldManager, 0);
+            if (matches.Count == before)
+                continue;
+
+            var name = addon->NameString;
+            hostAddons.Add(name);
+            if (loggedHosts.Add(name))
+                log.Information($"Found reward text in addon \"{name}\".");
         }
     }
 
@@ -251,7 +303,7 @@ public sealed unsafe class Plugin : IDalamudPlugin
             if (node->Type == NodeType.Text)
             {
                 var text = (AtkTextNode*)node;
-                if (IsShownOnScreen(node) && IsRewardClaimedText(text->NodeText.ToString()))
+                if (needles.Contains(Normalise(text->NodeText.ToString())) && IsShownOnScreen(node))
                     matches.Add(Measure(text));
             }
             else if ((int)node->Type >= 1000)
@@ -295,26 +347,43 @@ public sealed unsafe class Plugin : IDalamudPlugin
         else if (align == 1)
             left += (nodeWidth - width) / 2;
 
-        return new Match(left + width, node->ScreenY + node->Height * scale / 2);
+        var height = node->Height * scale;
+        return new Match(left, left + width, node->ScreenY, node->ScreenY + height, scale);
     }
 
-    private readonly record struct Match(float Right, float CenterY);
+    private readonly record struct Match(float Left, float Right, float Top, float Bottom, float Scale)
+    {
+        public float CenterY => (Top + Bottom) / 2;
+    }
+}
+
+public enum Placement
+{
+    Left,
+    Right,
+    Above,
+    Below,
 }
 
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 0;
+    public int Version { get; set; } = 1;
 
     public bool Enabled { get; set; } = true;
     public bool ShowSeconds { get; set; } = false;
     public bool ShowKind { get; set; } = true;
+    public Placement Placement { get; set; } = Placement.Left;
     public float FontScale { get; set; } = 1f;
     public float Gap { get; set; } = 8f;
-    public Vector4 Color { get; set; } = new(1f, 0.85f, 0.45f, 1f);
+
+    /// <summary>ImGui packed colour (ABGR). A plain number, because Vector4 didn't round-trip through the config.</summary>
+    public uint TextColour { get; set; } = 0xFF73D9FF;
 }
 
 internal sealed class ConfigWindow : Window
 {
+    private static readonly string[] PlacementNames = Enum.GetNames<Placement>();
+
     private readonly Configuration config;
     private readonly Action save;
 
@@ -355,6 +424,13 @@ internal sealed class ConfigWindow : Window
             changed = true;
         }
 
+        var placement = (int)config.Placement;
+        if (ImGui.Combo("Position", ref placement, PlacementNames, PlacementNames.Length))
+        {
+            config.Placement = (Placement)placement;
+            changed = true;
+        }
+
         var scale = config.FontScale;
         if (ImGui.SliderFloat("Text size", ref scale, 0.5f, 2f, "%.2f"))
         {
@@ -369,10 +445,10 @@ internal sealed class ConfigWindow : Window
             changed = true;
         }
 
-        var color = config.Color;
-        if (ImGui.ColorEdit4("Colour", ref color))
+        var colour = ImGui.ColorConvertU32ToFloat4(config.TextColour);
+        if (ImGui.ColorEdit4("Colour", ref colour))
         {
-            config.Color = color;
+            config.TextColour = ImGui.ColorConvertFloat4ToU32(colour);
             changed = true;
         }
 
